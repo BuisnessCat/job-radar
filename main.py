@@ -79,6 +79,18 @@ def read_jobs(path):
         
     return jobs_list
 
+def count_tech(job_list):
+        tech_count = {}
+        for job in job_list:
+            for tag in job['tags']:
+                if tag not in tech_count:
+                    tech_count[tag] = 1
+                else:
+                    tech_count[tag] += 1
+    
+        tech_count =  {key:value for key,value in sorted(tech_count.items(), key=lambda item: item[1], reverse=True)}
+        return tech_count
+
 
 if __name__ == "__main__":
     if os.path.isfile(CACHE_FILE):
@@ -92,4 +104,18 @@ if __name__ == "__main__":
 
     print(f"Saved {len(jobs)} jobs to {JOBS_FILE}.")
     
-    print(read_jobs(JOBS_FILE))
+    job_list = read_jobs(JOBS_FILE)
+    
+    print(count_tech(job_list))
+    
+            
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
