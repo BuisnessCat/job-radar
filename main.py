@@ -4,59 +4,92 @@ import sys
 import json
 import os.path
 
-BASE_URL = 'https://junior.guru/jobs/praha/'
+BASE_URL = "https://junior.guru/jobs/praha/"
+CACHE_FILE = "page.html"
+JOBS_FILE = "jobs.json"
 
-def parse_text(job, select):
-    data = job.select_one(select)
-    if data is None:
-        return None
-    return data.get_text(strip=True)
 
-def parse_url(job, select):
-    data = job.select_one(select)
-    if data is None:
+def download_page(url, path):
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        print("HTTP error occurred:", e)
+        sys.exit(1)
+    except requests.exceptions.RequestException as e:
+        print("A request error occurred:", e)
+        sys.exit(1)
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(response.text)
+
+
+def load_soup(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return BeautifulSoup(f, "html.parser")
+
+
+def parse_text(job, selector):
+    element = job.select_one(selector)
+    if element is None:
         return None
-    return data["href"]
-    
+    return element.get_text(strip=True)
+
+
+def parse_url(job, selector):
+    element = job.select_one(selector)
+    if element is None:
+        return None
+    return element.get("href")
+
+def parse_tags(job, selector):
+    elements = job.select(selector)
+    return [element.get('data-jobs-tag') for element in elements]
+
+
 def parse_jobs(soup):
-        jobs = []
+    jobs = []
+
+    for job in soup.find_all("div", class_="jobs-body"):
+        jobs.append({
+            "title": parse_text(job, "h3.jobs-title a.jobs-title-link"),
+            "company": parse_text(job, "p.jobs-info strong.jobs-info-item"),
+            "location": parse_text(job, "p.jobs-info span.jobs-info-item"),
+            "url": parse_url(job, "h3.jobs-title a.jobs-title-link"),
+            "tags": parse_tags(job, "p.jobs-tags span.jobs-tag"),
+        })
+
+    return jobs
+
+
+def save_jobs(jobs, path):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(jobs, f, indent=4, ensure_ascii=False)
         
-        for job in soup.find_all("div", class_="jobs-body"):
-            title = parse_text(job, "h3.jobs-title a.jobs-title-link")
-            company = parse_text(job, "p.jobs-info strong.jobs-info-item")
-            location = parse_text(job, "p.jobs-info span.jobs-info-item")
-            url = parse_url(job, "h3.jobs-title a.jobs-title-link")
-            
-            current_job = {"title": title, "company": company, "location": location, "url": url}
-            jobs.append(current_job)
-            
-        return jobs
+def read_jobs(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            jobs_list = json.load(f)
+    except FileNotFoundError as e:
+        print("File was not found: ", e)
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print("Not JSON file type: ", e)
+        sys.exit(1)
+        
+    return jobs_list
 
 
 if __name__ == "__main__":
-    
-    if os.path.isfile("page.html"):
-        print("File page.html already exists. Skipping download.")
-                 
-    else:    
-        try:
-            r = requests.get(BASE_URL, timeout=30)
-            r.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            print("HTTP error occured", e)
-            sys.exit(1)
-        except requests.exceptions.RequestException as e:
-            print("A request error occurred:", e)
-            sys.exit(1)
+    if os.path.isfile(CACHE_FILE):
+        print(f"File {CACHE_FILE} already exists. Skipping download.")
+    else:
+        download_page(BASE_URL, CACHE_FILE)
 
-        with open("page.html", 'w', encoding="utf-8") as f:
-            f.write(r.text)
-
-    with open("page.html", 'r', encoding="utf-8") as f:
-        soup = BeautifulSoup(f, 'html.parser')
-
+    soup = load_soup(CACHE_FILE)
     jobs = parse_jobs(soup)
+    save_jobs(jobs, JOBS_FILE)
+
+    print(f"Saved {len(jobs)} jobs to {JOBS_FILE}.")
     
-    with open("jobs.json", "w", encoding="utf-8") as file:
-        json.dump(jobs, file, indent=4, ensure_ascii=False)
-        
+    print(read_jobs(JOBS_FILE))
