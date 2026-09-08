@@ -7,6 +7,7 @@ import os.path
 BASE_URL = "https://junior.guru/jobs/praha/"
 CACHE_FILE = "page.html"
 JOBS_FILE = "jobs.json"
+TOP_TAGS = 10
 
 
 def download_page(url, path):
@@ -42,9 +43,10 @@ def parse_url(job, selector):
         return None
     return element.get("href")
 
+
 def parse_tags(job, selector):
     elements = job.select(selector)
-    return [element.get('data-jobs-tag') for element in elements]
+    return [element.get("data-jobs-tag") for element in elements]
 
 
 def parse_jobs(soup):
@@ -65,31 +67,28 @@ def parse_jobs(soup):
 def save_jobs(jobs, path):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(jobs, f, indent=4, ensure_ascii=False)
-        
+
+
 def read_jobs(path):
     try:
         with open(path, "r", encoding="utf-8") as f:
-            jobs_list = json.load(f)
+            return json.load(f)
     except FileNotFoundError as e:
-        print("File was not found: ", e)
+        print("File was not found:", e)
         sys.exit(1)
     except json.JSONDecodeError as e:
-        print("Not JSON file type: ", e)
+        print("Not JSON file type:", e)
         sys.exit(1)
-        
-    return jobs_list
 
-def count_tech(job_list):
-        tech_count = {}
-        for job in job_list:
-            for tag in job['tags']:
-                if tag not in tech_count:
-                    tech_count[tag] = 1
-                else:
-                    tech_count[tag] += 1
-    
-        tech_count =  {key:value for key,value in sorted(tech_count.items(), key=lambda item: item[1], reverse=True)}
-        return tech_count
+
+def count_tags(jobs):
+    tag_counts = {}
+
+    for job in jobs:
+        for tag in job["tags"]:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+    return sorted(tag_counts.items(), key=lambda item: item[1], reverse=True)
 
 
 if __name__ == "__main__":
@@ -103,19 +102,9 @@ if __name__ == "__main__":
     save_jobs(jobs, JOBS_FILE)
 
     print(f"Saved {len(jobs)} jobs to {JOBS_FILE}.")
-    
-    job_list = read_jobs(JOBS_FILE)
-    
-    print(count_tech(job_list))
-    
-            
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
+    tag_counts = count_tags(jobs)
+
+    print(f"\nTop {TOP_TAGS} tags:")
+    for tag, count in tag_counts[:TOP_TAGS]:
+        print(f"{tag}: {count}")
