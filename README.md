@@ -17,8 +17,10 @@ network. To get fresh data, delete the cache: `rm page.html`.
 
 # Postgres in Docker
 
-Current setup: container `jobdb`, postgres 18, port `5432`, user `postgres`,
+Current setup: container `jobdb`, postgres 18, port `5433`, user `postgres`,
 password `secret`, database `postgres`.
+
+Port 5433 and not 5432, because a Postgres installed in Windows already holds 5432.
 
 ## Container
 
@@ -33,10 +35,10 @@ docker logs jobdb          # check this when it won't connect
 Create from scratch (once, if the container doesn't exist yet):
 
 ```bash
-docker run -d --name jobdb -e POSTGRES_PASSWORD=secret -p 5432:5432 -v jobdb-data:/var/lib/postgresql postgres
+docker run -d --name jobdb -e POSTGRES_PASSWORD=secret -p 5433:5432 -v jobdb-data:/var/lib/postgresql postgres
 ```
 
-`-d` runs it in the background, `-p 5432:5432` publishes the port, `-v jobdb-data:...`
+`-d` runs it in the background, `-p 5433:5432` publishes port 5433 on this machine, `-v jobdb-data:...`
 is the data volume so it survives the container being deleted.
 
 Deleting (careful, `docker volume rm` wipes the database for good):
@@ -119,6 +121,8 @@ create table job (
 
 - `Cannot connect to the Docker daemon` — Docker Desktop isn't running.
 - `No such container: jobdb` — the container doesn't exist, see `docker run` above.
-- `port is already allocated` — something else is on 5432, publish `-p 5433:5432` instead.
+- `port is already allocated` — something else is on that port, publish another one.
+- Error text comes back as mojibake — that's the Windows Postgres answering, not the
+  container. Check the port.
 - `the input device is not a TTY` — missing `-it` on `docker exec`.
 - psql not responding, prompt shows `postgres-#` — it's waiting for a `;`.
