@@ -4,7 +4,8 @@
 
 A scraper for [junior.guru](https://junior.guru/jobs/praha/) job listings. It downloads
 the listings page, pulls out the jobs, saves them to a json file, loads them into
-Postgres, and prints the most common tags.
+Postgres, and prints the most common tags. A small FastAPI app serves what's in the
+database over http.
 
 ## The pipeline
 
@@ -21,6 +22,9 @@ parse_jobs()   title, company, location, url, tags
     |         |
     |         v
     |     load_jobs_to_db()  insert into Postgres, skip what's already there
+    |                              |
+    |                              v
+    |                        FastAPI  /jobs, /health
     |
     +---> count_tags()  ---> top 10 printed to the console
 ```
@@ -30,7 +34,8 @@ parse_jobs()   title, company, location, url, tags
 | File | What's in it |
 |---|---|
 | `main.py` | download, parse, save json, count tags, print |
-| `load.py` | insert rows into Postgres |
+| `load.py` | insert rows into Postgres, read them back out |
+| `app.py` | FastAPI app, serves the database over http |
 | `README.md` | docker and psql commands for the database |
 | `page.html` | cached page, gitignored |
 | `jobs.json` | parse result, gitignored |
@@ -50,7 +55,19 @@ parse_jobs()   title, company, location, url, tags
 | `read_jobs(path)` | reads json back, exits if the file is missing or broken |
 | `count_tags(jobs)` | counts tags, returns pairs sorted by count |
 
-`load.py` has one function, `load_jobs_to_db(jobs)`.
+## Functions in load.py
+
+| Function | What it does |
+|---|---|
+| `load_jobs_to_db(jobs)` | inserts rows, skips ones already in the table |
+| `read_jobs_from_db()` | selects every job, returns a list of dicts |
+
+## Endpoints in app.py
+
+| Route | Returns |
+|---|---|
+| `GET /health` | `{"status": "ok"}` |
+| `GET /jobs` | everything from `read_jobs_from_db()` |
 
 ## The database
 
@@ -80,6 +97,9 @@ Tags aren't in the table yet, they only exist in the json.
 | Container on port 5433 | Port 5432 is taken by a Postgres installed in Windows. |
 | `count_tags` returns a list, not a dict | What's needed is the order, and a list can be sliced for the top 10. |
 | Counting with `dict.get(tag, 0) + 1` | The first time a tag shows up stops being a special case. |
+| `row_factory=dict_row` on the read cursor | psycopg hands back tuples by default, which come out of the api as arrays of values. `dict_row` gives dicts keyed by column name, so `/jobs` returns named fields. |
+| A fresh connection inside the function, not one global connection | `with psycopg.connect(...)` closes it on exit, so a module-level one would be dead after the first request. A connection also carries transaction state, so one failed query would break every request after it, and a single connection can't serve concurrent requests safely. A pool is the next step if it gets slow. |
+| `DSN` as a constant | Both database functions need the same connection string. |
 
 ---
 
@@ -154,10 +174,28 @@ Two Postgres servers on one port, then the loader.
 - Generated `requirements.txt` with `pip freeze >` again and got UTF-16 again. Same
   trap as Aug 31.
 
+## Sep 13
+
+FastAPI on top of the database: `/health` and `/jobs`.
+
+- `/jobs` came back as arrays of values instead of objects. psycopg returns tuples by
+  default; `cursor(row_factory=dict_row)` makes each row a dict keyed by column name, and
+  then FastAPI serializes them as proper json objects.
+- Kept `psycopg.connect` inside the function instead of opening one connection at module
+  level. `with` closes the connection when the function returns, so a global one would be
+  dead after the first request anyway — and a connection holds transaction state, so one
+  failed query would poison every request after it.
+- `uvicorn app:app` — the first `app` is the module (`app.py`), the second is the
+  `app = FastAPI()` object inside it. Nothing magic, just `module:variable`.
+- Pulled the connection string out into a `DSN` constant, both functions use it now.
+- Checked it end to end: `/health` returns ok, `/jobs` returns the 81 rows in the table.
+
 ## TODO
 
-- `python-dotenv` is missing from `requirements.txt` — a fresh clone would fail on the
-  import. And the file is UTF-16 again.
+- `requirements.txt` is UTF-16 again.
+- `/jobs` returns the whole table at once, no limit and no paging.
+- Tags aren't exposed anywhere — not in the table, not in the api.
+- A connection per request is fine now, but `psycopg_pool` is the real answer.
 - No tags in the database, they live only in the json.
 - Cache never refreshes — needs a max age or a `--refresh` flag.
 - Mixed link formats: some relative (`/jobs/...`), some absolute. `urllib.parse.urljoin`.

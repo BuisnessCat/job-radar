@@ -1,7 +1,8 @@
 # job-radar
 
 Job scraper for [junior.guru](https://junior.guru/jobs/praha/). Collects title, company,
-location, link and tags, saves them to `jobs.json`, prints the top 10 tags.
+location, link and tags, saves them to `jobs.json` and to Postgres, prints the top 10
+tags. A small FastAPI app serves what's in the database.
 
 ## Running it
 
@@ -12,6 +13,33 @@ python main.py
 
 The page is cached in `page.html`, and while that file is there the script won't hit the
 network. To get fresh data, delete the cache: `rm page.html`.
+
+## Running the API
+
+```bash
+uvicorn app:app --reload
+```
+
+Then open <http://127.0.0.1:8000>.
+
+`app:app` is `module:variable` — the file `app.py`, and the `app = FastAPI()` object
+inside it. uvicorn imports the module and serves that object. `--reload` restarts the
+server whenever a file changes, which is for development only.
+
+| Endpoint | Returns |
+|---|---|
+| `/health` | `{"status": "ok"}` — just checks the server is up |
+| `/jobs` | every job in the database as json |
+| `/docs` | generated, clickable API docs |
+
+`/jobs` reads from Postgres, so the container has to be running. If it isn't, the
+request fails with a connection error.
+
+Another port, if 8000 is busy:
+
+```bash
+uvicorn app:app --reload --port 8001
+```
 
 ---
 
