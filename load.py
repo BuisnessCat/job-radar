@@ -2,6 +2,9 @@ import psycopg
 import os
 from dotenv import load_dotenv
 from psycopg.rows import dict_row
+from db import Session
+from sqlalchemy import select
+from models import Job
 
 load_dotenv()
 db_password = os.getenv("DB_PASSWORD")
@@ -14,14 +17,18 @@ def read_jobs_from_db():
             return cur.fetchall()
 
 def load_jobs_to_db(jobs):
-    with psycopg.connect(DSN) as conn:
-        with conn.cursor() as cur:
-            for job in jobs:
-                cur.execute(
-                    "INSERT INTO job (title, company, url, location, source_id) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (source_id) DO NOTHING",
-                    (job["title"], job["company"], job["url"], job["location"], job["url"])
-                )
+    with Session.begin() as session:
+        for job in jobs:
+            stmt = select(Job).where(Job.source_id == job["url"])
+            if session.scalars(stmt).one_or_none() is None:
+                session.add(Job(title=job["title"], 
+                                company=job["company"], 
+                                url=job["url"], 
+                                location=job["location"], 
+                                source_id=job["url"]))
 
+
+    
 
 
 

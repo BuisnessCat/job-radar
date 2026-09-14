@@ -3,12 +3,12 @@ import requests
 import sys
 import json
 import os.path
-
 from load import load_jobs_to_db
 
+
 BASE_URL = "https://junior.guru/jobs/praha/"
-CACHE_FILE = "page.html"
-JOBS_FILE = "jobs.json"
+CACHE_FILE = "data/page.html"
+JOBS_FILE = "data/jobs.json"
 TOP_TAGS = 10
 
 
@@ -106,8 +106,8 @@ if __name__ == "__main__":
     load_jobs_to_db(read_jobs(JOBS_FILE))
     print(f"Saved {len(jobs)} jobs to {JOBS_FILE}.")
 
-    tag_counts = count_tags(jobs)
+    #tag_counts = count_tags(jobs)
 
-    print(f"\nTop {TOP_TAGS} tags:")
-    for tag, count in tag_counts[:TOP_TAGS]:
-        print(f"{tag}: {count}")
+    #print(f"\nTop {TOP_TAGS} tags:")
+    #for tag, count in tag_counts[:TOP_TAGS]:
+    #    print(f"{tag}: {count}")

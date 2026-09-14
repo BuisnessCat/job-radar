@@ -11,8 +11,11 @@ pip install -r requirements.txt
 python main.py
 ```
 
-The page is cached in `page.html`, and while that file is there the script won't hit the
-network. To get fresh data, delete the cache: `rm page.html`.
+The page is cached in `data/page.html`, and while that file is there the script won't hit
+the network. To get fresh data, delete the cache: `rm data/page.html`.
+
+Everything the script generates lives in `data/` — the cached page and `jobs.json`.
+Both are gitignored.
 
 ## Running the API
 

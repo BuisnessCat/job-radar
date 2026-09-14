@@ -13,12 +13,12 @@ database over http.
 junior.guru
     |
     v
-page.html      cached copy, so debugging doesn't hit the site every run
+data/page.html      cached copy, so debugging doesn't hit the site every run
     |
     v
 parse_jobs()   title, company, location, url, tags
     |
-    +---> jobs.json          full result, easy to eyeball
+    +---> data/jobs.json     full result, easy to eyeball
     |         |
     |         v
     |     load_jobs_to_db()  insert into Postgres, skip what's already there
@@ -35,10 +35,12 @@ parse_jobs()   title, company, location, url, tags
 |---|---|
 | `main.py` | download, parse, save json, count tags, print |
 | `load.py` | insert rows into Postgres, read them back out |
+| `db.py` | SQLAlchemy engine and the `Session` factory |
+| `models.py` | the `Job` model — the table described in Python |
 | `app.py` | FastAPI app, serves the database over http |
 | `README.md` | docker and psql commands for the database |
-| `page.html` | cached page, gitignored |
-| `jobs.json` | parse result, gitignored |
+| `data/page.html` | cached page, gitignored |
+| `data/jobs.json` | parse result, gitignored |
 | `.env` | `DB_PASSWORD`, gitignored |
 
 ## Functions in main.py
@@ -59,8 +61,8 @@ parse_jobs()   title, company, location, url, tags
 
 | Function | What it does |
 |---|---|
-| `load_jobs_to_db(jobs)` | inserts rows, skips ones already in the table |
-| `read_jobs_from_db()` | selects every job, returns a list of dicts |
+| `load_jobs_to_db(jobs)` | inserts rows through the ORM, skips ones already in the table |
+| `read_jobs_from_db()` | selects every job with raw psycopg, returns a list of dicts |
 
 ## Endpoints in app.py
 
@@ -84,11 +86,14 @@ Postgres 18 in Docker, container `jobdb`, port 5433. Table `job`:
 
 Tags aren't in the table yet, they only exist in the json.
 
+The same table is described in `models.py` as the `Job` model, which is what the ORM
+writes through.
+
 ## Why it's built this way
 
 | Decision | Reason |
 |---|---|
-| Cache the page in `page.html` | Debugging shouldn't hammer someone else's site. Downside: the cache never expires, so fresh data needs the file deleted. |
+| Cache the page in `data/page.html` | Debugging shouldn't hammer someone else's site. Downside: the cache never expires, so fresh data needs the file deleted. |
 | Parsers return `None` instead of crashing | The markup isn't uniform — a missing field shouldn't kill the whole run. |
 | `jobs.json` sits between parsing and the database | The data is readable in one glance, and the db load can be rerun without scraping again. |
 | `source_id` is the url, with a `UNIQUE` constraint | Reruns must not duplicate rows, and the url is the only stable id the site gives me. |
@@ -100,6 +105,10 @@ Tags aren't in the table yet, they only exist in the json.
 | `row_factory=dict_row` on the read cursor | psycopg hands back tuples by default, which come out of the api as arrays of values. `dict_row` gives dicts keyed by column name, so `/jobs` returns named fields. |
 | A fresh connection inside the function, not one global connection | `with psycopg.connect(...)` closes it on exit, so a module-level one would be dead after the first request. A connection also carries transaction state, so one failed query would break every request after it, and a single connection can't serve concurrent requests safely. A pool is the next step if it gets slow. |
 | `DSN` as a constant | Both database functions need the same connection string. |
+| Generated files in `data/`, code at the root | The cached page and the json aren't source, and at 525 KB the page was the biggest thing in the folder. Kept it at that — no package layout, five modules don't need one. |
+| `Session.begin()` for writing | It opens a transaction and commits it when the block ends, or rolls back if something raises. No commit left to remember. |
+| The `Job` model mirrors the existing table | The table was written by hand first, so the model describes what's already there rather than creating anything. |
+| Query built with `select()`, run by the session | The statement is just an object, so it can be built, named and reused; only the session decides when it goes to the database. |
 
 ---
 
@@ -190,9 +199,39 @@ FastAPI on top of the database: `/health` and `/jobs`.
 - Pulled the connection string out into a `DSN` constant, both functions use it now.
 - Checked it end to end: `/health` returns ok, `/jobs` returns the 81 rows in the table.
 
+## Sep 14
+
+SQLAlchemy for the writing side: `db.py` (engine + `sessionmaker`), `models.py` (the
+`Job` model), `load_jobs_to_db` rewritten on the ORM.
+
+- `Session()` vs `Session.begin()`. `Session()` just hands me a session — nothing is
+  saved unless I call `session.commit()` myself, and leaving the `with` block only closes
+  it. `Session.begin()` opens a transaction and commits it when the block exits cleanly,
+  rolls back if something raises. Writing goes through `begin()` so there's no forgotten
+  commit; plain `Session()` is enough for reading.
+- `select(Job).where(...)` doesn't touch the database. It builds a `Select` object, which
+  is a description of a query and nothing else. The database only sees it when a session
+  runs it — `session.scalars(stmt)` or `session.execute(stmt)`. That's why a statement can
+  sit in a variable and be reused.
+- Who owns `scalar_one_or_none`: the result, not the session and not the statement.
+  `session.execute(stmt)` returns a `Result`, and `Result` has `.scalar_one_or_none()`.
+  `session.scalars(stmt)` returns a `ScalarResult`, already unwrapped to single values,
+  and that one only has `.one_or_none()` — no `scalar_` prefix, because the unwrapping
+  already happened. I'm using the second pair.
+- `echo=True` on the engine prints every statement it sends. Handy while learning what
+  the ORM actually does, noise once it works.
+- Commented out the tag printing so the SQL log was readable.
+- Moved `page.html` and `jobs.json` into `data/`. Two constants in `main.py`, nothing else
+  refers to those paths. `.gitignore` didn't need touching — patterns without a slash
+  match at any depth.
+
 ## TODO
 
 - `requirements.txt` is UTF-16 again.
+- `load.py` talks to the database two ways now — psycopg for reading, the ORM for
+  writing. Should pick one.
+- `echo=True` is still on.
+- The tag printing in `main.py` is commented out, not deleted.
 - `/jobs` returns the whole table at once, no limit and no paging.
 - Tags aren't exposed anywhere — not in the table, not in the api.
 - A connection per request is fine now, but `psycopg_pool` is the real answer.
