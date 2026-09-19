@@ -1,7 +1,6 @@
-import psycopg
 import os
 from dotenv import load_dotenv
-from psycopg.rows import dict_row
+from fastapi import HTTPException
 from db import Session
 from sqlalchemy import select
 from models import Job
@@ -10,12 +9,20 @@ load_dotenv()
 db_password = os.getenv("DB_PASSWORD")
 DSN = f"dbname=postgres user=postgres password={db_password} port=5433"
 
-def read_jobs_from_db():
-    with psycopg.connect(DSN) as conn:
-        with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute("SELECT title, company, url, location FROM job")
-            return cur.fetchall()
-
+def read_jobs_from_db(offset, limit):
+    with Session() as session:
+        stmt = select(Job).offset(offset).limit(limit)
+        return session.scalars(stmt).all()
+    
+    
+def read_job_from_db(job_id):
+    with Session() as session:
+        stmt = select(Job).where(Job.id == job_id)
+        job = session.scalars(stmt).one_or_none()
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return job
+    
 def load_jobs_to_db(jobs):
     with Session.begin() as session:
         for job in jobs:
