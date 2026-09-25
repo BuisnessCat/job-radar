@@ -10,8 +10,10 @@ def health_check():
     return {"status": "ok"}
 
 @app.get("/jobs", response_model=list[JobOut])
-def get_jobs(offset: int = Query(ge=0, default=0), limit: int | None = Query(ge=1, default=20)):
-    return read_jobs_from_db(offset, limit)
+def get_jobs(offset: int = Query(ge=0, default=0), 
+             limit: int | None = Query(ge=1, default=20), 
+             location: str | None = Query(default=None)):
+    return read_jobs_from_db(offset, limit, location)
 
 @app.get("/jobs/{job_id}", response_model=JobOut)
 def get_job(job_id: int):

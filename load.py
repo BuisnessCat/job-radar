@@ -9,9 +9,15 @@ load_dotenv()
 db_password = os.getenv("DB_PASSWORD")
 DSN = f"dbname=postgres user=postgres password={db_password} port=5433"
 
-def read_jobs_from_db(offset, limit):
+ALLOWED_LOCATIONS = {"Praha", "Brno"}
+
+def read_jobs_from_db(offset, limit, location):
+    if location and location.title() not in ALLOWED_LOCATIONS:
+        raise HTTPException(status_code=400, detail="Invalid location")
+
     with Session() as session:
-        stmt = select(Job).offset(offset).limit(limit)
+        stmt = select(Job).offset(offset).limit(limit).where(Job.location == location.title()) 
+        stmt = select(Job).offset(offset).limit(limit) if location is None else stmt
         return session.scalars(stmt).all()
     
     
