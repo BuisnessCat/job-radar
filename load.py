@@ -1,34 +1,24 @@
-import os
-from dotenv import load_dotenv
-from fastapi import HTTPException
+from ast import stmt
+
 from db import Session
 from sqlalchemy import select
-from models import Job
-
-load_dotenv()
-db_password = os.getenv("DB_PASSWORD")
-DSN = f"dbname=postgres user=postgres password={db_password} port=5433"
+from models import Job, Tag, JobTag
 
 ALLOWED_LOCATIONS = {"Praha", "Brno"}
 
 def read_jobs_from_db(offset, limit, location):
-    if location and location.title() not in ALLOWED_LOCATIONS:
-        raise HTTPException(status_code=400, detail="Invalid location")
-
     with Session() as session:
-        stmt = select(Job).offset(offset).limit(limit).where(Job.location == location.title()) 
-        stmt = select(Job).offset(offset).limit(limit) if location is None else stmt
+        stmt = select(Job).offset(offset).limit(limit)
+        if location is not None:
+            stmt = stmt.where(Job.location == location.title())
         return session.scalars(stmt).all()
-    
     
 def read_job_from_db(job_id):
     with Session() as session:
         stmt = select(Job).where(Job.id == job_id)
         job = session.scalars(stmt).one_or_none()
-        if job is None:
-            raise HTTPException(status_code=404, detail="Job not found")
         return job
-    
+        
 def load_jobs_to_db(jobs):
     with Session.begin() as session:
         for job in jobs:
@@ -40,8 +30,25 @@ def load_jobs_to_db(jobs):
                                 location=job["location"], 
                                 source_id=job["url"]))
 
-
-    
+def load_tags_to_db(jobs):
+    with Session.begin() as session:
+        for job in jobs:
+            db_job = session.scalars(select(Job).where(Job.source_id == job["url"])).one_or_none()
+            
+            if db_job is None:
+                continue
+            
+            for tag_name in job["tags"]:
+                stmt = select(Tag).where(Tag.name == tag_name)              
+                tag = session.scalars(stmt).one_or_none()
+                if tag is None:
+                    tag = Tag(name=tag_name)
+                    session.add(tag)
+                    session.flush()
+                 
+                if session.scalars(select(JobTag).where(JobTag.job_id == db_job.id, JobTag.tag_id == tag.id)).one_or_none() is None: 
+                    session.add(JobTag(job_id=db_job.id, tag_id=tag.id))   
+                
 
 
 

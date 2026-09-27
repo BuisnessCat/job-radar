@@ -3,7 +3,7 @@ import requests
 import sys
 import json
 import os.path
-from load import load_jobs_to_db
+from load import load_jobs_to_db, load_tags_to_db
 
 
 BASE_URL = "https://junior.guru/jobs/praha/"
@@ -104,6 +104,8 @@ if __name__ == "__main__":
     save_jobs(jobs, JOBS_FILE)
     
     load_jobs_to_db(read_jobs(JOBS_FILE))
+    load_tags_to_db(read_jobs(JOBS_FILE))
+    
     print(f"Saved {len(jobs)} jobs to {JOBS_FILE}.")
 
     #tag_counts = count_tags(jobs)
