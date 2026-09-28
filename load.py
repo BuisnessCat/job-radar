@@ -1,18 +1,26 @@
 from ast import stmt
-
 from db import Session
 from sqlalchemy import select
 from models import Job, Tag, JobTag
+from sqlalchemy import func
 
 ALLOWED_LOCATIONS = {"Praha", "Brno"}
 
-def read_jobs_from_db(offset, limit, location):
+def read_jobs_from_db(offset, limit, location, tag):
     with Session() as session:
         stmt = select(Job).offset(offset).limit(limit)
+        
         if location is not None:
             stmt = stmt.where(Job.location == location.title())
+            
+        if tag is not None:
+            stmt = (
+                stmt.join(JobTag, Job.id == JobTag.job_id)
+                .join(Tag, JobTag.tag_id == Tag.id)
+                .where(Tag.name == tag.lower())
+            )    
         return session.scalars(stmt).all()
-    
+
 def read_job_from_db(job_id):
     with Session() as session:
         stmt = select(Job).where(Job.id == job_id)
@@ -48,9 +56,17 @@ def load_tags_to_db(jobs):
                  
                 if session.scalars(select(JobTag).where(JobTag.job_id == db_job.id, JobTag.tag_id == tag.id)).one_or_none() is None: 
                     session.add(JobTag(job_id=db_job.id, tag_id=tag.id))   
-                
+            
+def count_tags():
+    with Session() as session:
+        stmt = (
+            select(Tag.name, func.count(JobTag.job_id))
+            .join(JobTag, JobTag.tag_id == Tag.id)
+            .group_by(Tag.name)
+        )
 
-
+        return [{"tag": row[0], "count": row[1]} for row in session.execute(stmt).all()
+]
 
 
 
