@@ -94,6 +94,8 @@ def count_tags(jobs):
 
 
 if __name__ == "__main__":
+    os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+
     if os.path.isfile(CACHE_FILE):
         print(f"File {CACHE_FILE} already exists. Skipping download.")
     else:
