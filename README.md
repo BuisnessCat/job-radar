@@ -1,85 +1,213 @@
 # job-radar
 
-Job scraper for [junior.guru](https://junior.guru/jobs/praha/). Collects title, company,
-location, link and tags, saves them to `jobs.json` and to Postgres, prints the top 10
-tags. A small FastAPI app serves what's in the database.
+A practice project of mine. It scrapes junior IT job listings from
+[junior.guru](https://junior.guru/jobs/praha/), puts them into Postgres and serves them
+through a small FastAPI app. So you can ask things like "Python jobs in Prague" or "which
+tags show up the most" and get an answer in one request.
 
-## Running it
+## Why
+
+junior.guru is a great site, but it's one long page you scroll through. I wanted the same
+jobs in a database where I can filter them and count things.
+
+The other reason is that I'm learning backend development, and I wanted one project that
+touches everything at once: scraping, SQL, migrations, an API. I wrote down every step as
+I went, mistakes included, in [dev_log.md](dev_log.md).
+
+## How it works
+
+```
+junior.guru  --->  main.py  --->  Postgres  --->  app.py (FastAPI)
+                      |
+                      +--> data/page.html    the downloaded page
+                      +--> data/jobs.json    what the parser found
+```
+
+`main.py` downloads the listings page once and keeps it in `data/page.html`, so I'm not
+hitting the site every time I run it. Then it pulls out the jobs (title, company,
+location, link, tags), saves them to `data/jobs.json` and loads them into the database.
+
+`app.py` only reads from the database. It doesn't know the scraper exists.
+
+The rest of the files: `load.py` is everything that talks to the database, `models.py`
+describes the tables, `schemas.py` is what the API sends back, and `alembic/` has the
+migrations.
+
+## Running it locally
+
+You'll need Python 3.10 or newer (I use 3.11), Docker and git. I work on Windows, but
+apart from activating the venv everything is the same on macOS and Linux.
+
+**1. Clone the repo**
 
 ```bash
+git clone https://github.com/BuisnessCat/job-radar.git
+cd job-radar
+```
+
+**2. Make a virtual environment and install the dependencies**
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+```
+
+On macOS or Linux the second line is `source .venv/bin/activate`.
+
+**3. Start Postgres in Docker**
+
+```bash
+docker run -d --name jobdb -e POSTGRES_PASSWORD=secret -p 5433:5432 -v jobdb-data:/var/lib/postgresql postgres:18
+```
+
+Note the port, it's 5433 and not the usual 5432. I have another Postgres installed
+straight into Windows that sits on 5432, and the two kept getting mixed up (that story is
+in the dev log, Sep 11).
+
+It needs a few seconds to start. If you're not sure it's up, `docker logs jobdb` should
+end with "database system is ready to accept connections".
+
+**4. Create `.env`**
+
+```bash
+cp .env.example .env
+```
+
+There's only the database password in it, and it already matches the one from
+`docker run`. If you changed it there, change it here too. Host, port and user are
+hardcoded in `db.py` and `alembic/env.py` (yes, I know).
+
+**5. Create the tables**
+
+```bash
+alembic upgrade head
+```
+
+**6. Run the scraper**
+
+```bash
 python main.py
 ```
 
-The page is cached in `data/page.html`, and while that file is there the script won't hit
-the network. To get fresh data, delete the cache: `rm data/page.html`.
+It prints a wall of SQL (I left `echo=True` on in `db.py` while learning SQLAlchemy) and
+ends with something like `Saved 80 jobs to data/jobs.json.`
 
-Everything the script generates lives in `data/` — the cached page and `jobs.json`.
-Both are gitignored.
+You can run it as many times as you want, nothing gets duplicated. But it reuses the
+saved page, so for fresh jobs delete `data/page.html` first.
 
-## Running the API
+**7. Start the API**
 
 ```bash
 uvicorn app:app --reload
 ```
 
-Then open <http://127.0.0.1:8000>.
+Now open <http://127.0.0.1:8000/docs>. It lists every endpoint and lets you call them
+right from the browser, which is the easiest way to poke around. If port 8000 is busy,
+add `--port 8001`.
 
-`app:app` is `module:variable` — the file `app.py`, and the `app = FastAPI()` object
-inside it. uvicorn imports the module and serves that object. `--reload` restarts the
-server whenever a file changes, which is for development only.
+## The API
 
-| Endpoint | Returns |
+| Endpoint | What you get |
 |---|---|
-| `/health` | `{"status": "ok"}` — just checks the server is up |
-| `/jobs` | every job in the database as json |
-| `/docs` | generated, clickable API docs |
+| `GET /health` | `{"status": "ok"}` if the server is running |
+| `GET /jobs` | jobs, 20 at a time |
+| `GET /jobs/{id}` | one job, or a 404 |
+| `GET /stats/tags` | how many jobs have each tag |
 
-`/jobs` reads from Postgres, so the container has to be running. If it isn't, the
-request fails with a connection error.
+`/jobs` takes a few optional parameters, and you can combine them:
 
-Another port, if 8000 is busy:
+- `offset` and `limit` for paging. `?offset=20&limit=20` is the second page.
+- `location` is a city: `praha`, `brno`. Case doesn't matter, but it has to match the
+  whole location, so `brno` won't find "Brno, Prostějov (Olomouc)".
+- `tag` is `python`, `react`, `testing` and so on. The full list is in `/stats/tags`.
+
+For example, the first two Python jobs in Prague:
 
 ```bash
-uvicorn app:app --reload --port 8001
+curl "http://127.0.0.1:8000/jobs?location=praha&tag=python&limit=2"
 ```
+
+```json
+[
+  {
+    "id": 2,
+    "title": "Specialista/ka v oblasti datové infrastruktury a služeb (Life Sciences)",
+    "company": "Ústav molekulární genetiky AV ČR, v.v.i.",
+    "url": "https://www.jobs.cz/rpd/2001345737/?utm_source=juniorguru",
+    "location": "Praha",
+    "created_at": "2026-09-28T16:35:12.418903"
+  },
+  {
+    "id": 8,
+    "title": "Data Scientist",
+    "company": "PŘEDVÝBĚR.CZ a.s.",
+    "url": "https://www.jobs.cz/rpd/2001371969/?utm_source=juniorguru",
+    "location": "Praha",
+    "created_at": "2026-09-28T16:35:12.421337"
+  }
+]
+```
+
+And the tag stats, cut short:
+
+```json
+[
+  {"tag": "python", "count": 32},
+  {"tag": "react", "count": 15},
+  {"tag": "testing", "count": 39},
+  ...
+]
+```
+
+Your ids, dates and numbers will be different, it depends on when you ran the scraper.
+The stats come back in no particular order, sorting is on my list.
+
+On Windows, `curl` in PowerShell isn't the real curl, it's an alias for
+`Invoke-WebRequest`. Type `curl.exe` instead, or just open the link in a browser.
+
+## What doesn't work yet
+
+- Only one page gets scraped, `/jobs/praha/`. It does have jobs from other cities too.
+- Jobs that people share on the junior.guru Discord have a different card layout, and the
+  parser gets them wrong. The company comes out empty, and the location turns into
+  `DěkujemeH.J.za sdílení!` ("thanks H.J. for sharing", with the spaces lost on top).
+  Worse, `/jobs` returns a 500 for any page that contains one of them.
+- The saved page never expires, you have to delete it by hand.
+- Some job links are relative (`/jobs/...` on junior.guru), others go to other sites.
+- No tests yet.
 
 ---
 
-# Postgres in Docker
+# Postgres cheat sheet
 
-Current setup: container `jobdb`, postgres 18, port `5433`, user `postgres`,
-password `secret`, database `postgres`.
+My own notes, mostly so I don't have to google the same docker and psql commands every
+time. All of it is about the `jobdb` container from step 3.
 
-Port 5433 and not 5432, because a Postgres installed in Windows already holds 5432.
-
-## Container
+## The container
 
 ```bash
 docker ps                  # what's running
 docker ps -a               # everything, including stopped
-docker start jobdb
+docker start jobdb         # after a reboot it's stopped, start it again
 docker stop jobdb
-docker logs jobdb          # check this when it won't connect
+docker logs jobdb          # look here first when it won't connect
 ```
 
-Create from scratch (once, if the container doesn't exist yet):
+What the `docker run` flags mean: `-d` runs it in the background, `-p 5433:5432` maps
+port 5432 inside the container to 5433 on my machine, and `-v jobdb-data:...` keeps the
+data in a named volume, so it survives deleting the container.
 
-```bash
-docker run -d --name jobdb -e POSTGRES_PASSWORD=secret -p 5433:5432 -v jobdb-data:/var/lib/postgresql postgres
-```
-
-`-d` runs it in the background, `-p 5433:5432` publishes port 5433 on this machine, `-v jobdb-data:...`
-is the data volume so it survives the container being deleted.
-
-Deleting (careful, `docker volume rm` wipes the database for good):
+Starting over with an empty database (careful, `docker volume rm` deletes the data for
+good):
 
 ```bash
 docker stop jobdb
 docker rm jobdb
-docker volume ls
 docker volume rm jobdb-data
 ```
+
+Then steps 3, 5 and 6 again.
 
 ## Getting into psql
 
@@ -87,7 +215,7 @@ docker volume rm jobdb-data
 docker exec -it jobdb psql -U postgres
 ```
 
-Running a single query without opening the console:
+Or a single query without opening the console:
 
 ```bash
 docker exec jobdb psql -U postgres -c "select count(*) from job;"
@@ -113,15 +241,21 @@ docker exec jobdb psql -U postgres -c "select count(*) from job;"
 If the output doesn't fit the screen, scroll with the arrow keys and press `q` to leave
 the pager.
 
-## The job table
+## Tables
 
+There are three. `job` holds the jobs: `id`, `title`, `company`, `url`, `location`,
+`created_at`, and `source_id`, which is the job's url again with a unique constraint, so
+the same job can't get in twice. `tag` is just `id` and `name`. `job_tag` connects the
+two, one row per "this job has this tag".
+
+I don't create or change tables by hand anymore. I change `models.py`, then:
+
+```bash
+alembic revision --autogenerate -m "what changed"
+alembic upgrade head
 ```
- id       | integer | not null | nextval('job_id_seq'::regclass)
- title    | text
- company  | text
- url      | text
- location | text
-```
+
+Queries I keep coming back to:
 
 ```sql
 select * from job limit 5;
@@ -129,31 +263,34 @@ select count(*) from job;
 select * from job where location = 'Praha';
 select company, count(*) from job group by company order by count(*) desc;
 
-insert into job (title, company, url, location)
-values ('Python Developer', 'Red Hat', 'https://example.com', 'Brno');
+-- top 10 tags
+select t.name, count(*) from tag t
+join job_tag jt on jt.tag_id = t.id
+group by t.name order by count(*) desc limit 10;
 
-delete from job where id = 1;
-truncate job restart identity;   -- empty the table and reset the id counter
+-- jobs with a given tag
+select j.title, j.company from job j
+join job_tag jt on jt.job_id = j.id
+join tag t on t.id = jt.tag_id
+where t.name = 'python';
+
+-- empty all three tables and reset the ids
+truncate job, tag, job_tag restart identity;
 ```
 
-Recreating the table:
+## When something breaks
 
-```sql
-create table job (
-    id serial primary key,
-    title text,
-    company text,
-    url text,
-    location text
-);
-```
-
-## When it doesn't work
-
-- `Cannot connect to the Docker daemon` — Docker Desktop isn't running.
-- `No such container: jobdb` — the container doesn't exist, see `docker run` above.
-- `port is already allocated` — something else is on that port, publish another one.
-- Error text comes back as mojibake — that's the Windows Postgres answering, not the
-  container. Check the port.
-- `the input device is not a TTY` — missing `-it` on `docker exec`.
-- psql not responding, prompt shows `postgres-#` — it's waiting for a `;`.
+- `Cannot connect to the Docker daemon`: Docker Desktop isn't running.
+- `No such container: jobdb`: the container doesn't exist yet, see step 3.
+- `port is already allocated`: something else took 5433. You can publish a different
+  port, but then change it in `db.py` and `alembic/env.py` as well.
+- `connection refused` from `alembic` or `/jobs`: the container is stopped,
+  `docker start jobdb`.
+- `password authentication failed`: the password in `.env` doesn't match the one the
+  container was created with.
+- `relation "job" does not exist`: the tables were never created, run
+  `alembic upgrade head`.
+- The error message comes back as mojibake: that's the Windows Postgres answering, not
+  the container. Check the port.
+- `the input device is not a TTY`: you forgot `-it` on `docker exec`.
+- psql hangs and the prompt says `postgres-#`: it's waiting for a `;`.
