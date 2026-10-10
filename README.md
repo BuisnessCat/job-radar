@@ -149,19 +149,21 @@ curl "http://127.0.0.1:8000/jobs?location=praha&tag=python&limit=2"
 ]
 ```
 
-And the tag stats, cut short:
+And the tag stats, most common first, cut short:
 
 ```json
 [
-  {"tag": "python", "count": 32},
-  {"tag": "react", "count": 15},
-  {"tag": "testing", "count": 39},
+  {"tag": "fulltime", "count": 73},
+  {"tag": "jobscz", "count": 49},
+  {"tag": "database", "count": 46},
   ...
 ]
 ```
 
+Yes, the top ones aren't technologies. The site's tags mix skills with cities, contract
+types and job boards. `python` is in sixth place with 32.
+
 Your ids, dates and numbers will be different, it depends on when you ran the scraper.
-The stats come back in no particular order, sorting is on my list.
 
 On Windows, `curl` in PowerShell isn't the real curl, it's an alias for
 `Invoke-WebRequest`. Type `curl.exe` instead, or just open the link in a browser.

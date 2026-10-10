@@ -72,7 +72,7 @@ data/jobs.json      full result, easy to eyeball
 | `read_job_from_db(job_id)` | one job, or `None` if there's no such id |
 | `load_jobs_to_db(jobs)` | inserts jobs, skips the ones whose url is already in the table |
 | `load_tags_to_db(jobs)` | creates tags that don't exist yet and links them to their jobs |
-| `count_tags()` | tag name and number of jobs, counted by Postgres |
+| `count_tags()` | tag name and number of jobs, counted and sorted by Postgres |
 
 ## Endpoints in app.py
 
@@ -393,6 +393,19 @@ example request with the response. My notes stayed at the bottom as a cheat shee
   without a company and the whole request ends in a 500. The default first page happens
   to be fine, `/jobs?limit=100` isn't.
 
+## Oct 10
+
+Sick, so just something small: `/stats/tags` is sorted now, most common tag first.
+
+- `order_by(job_count.desc(), Tag.name)`. Postgres sorts by the count, biggest first, and
+  tags with the same count go alphabetically. Without the second part their order could
+  change from one request to the next.
+- Put `func.count(JobTag.job_id)` into a variable, `job_count`, because it's needed twice
+  now, in `select` and in `order_by`. It doesn't run anything, it's just a piece of the
+  query, same as `select()` itself (Sep 14).
+- The sorted list made the Sep 4 thing obvious again: the top three are `fulltime`,
+  `jobscz` and `database`. `python` is sixth.
+
 ## TODO
 
 - `/jobs` 500s on jobs with no company or location. Either `str | None` in `JobOut`, or
@@ -401,8 +414,7 @@ example request with the response. My notes stayed at the bottom as a cheat shee
   into the location.
 - `model_config` in `schemas.py` sits outside the class, so it does nothing. It only works
   because FastAPI reads the attributes by itself.
-- No `order_by` anywhere. Paging without an order isn't guaranteed to be stable, and
-  `/stats/tags` is unsorted.
+- No `order_by` in `/jobs`. Paging without an order isn't guaranteed to be stable.
 - The connection string is in two places, `db.py` and `alembic/env.py`, and everything
   except the password is hardcoded.
 - The last migration can't be downgraded, the foreign keys have no names.

@@ -42,6 +42,6 @@ def get_job(job_id: int):
     return job
 
 @app.get("/stats/tags",
-         description="Every tag with the number of jobs that have it, in no particular order.")
+         description="Every tag with the number of jobs that have it, most common first.")
 def get_tags():
     return count_tags()

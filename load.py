@@ -59,10 +59,12 @@ def load_tags_to_db(jobs):
             
 def count_tags():
     with Session() as session:
+        job_count = func.count(JobTag.job_id)
         stmt = (
-            select(Tag.name, func.count(JobTag.job_id))
+            select(Tag.name, job_count)
             .join(JobTag, JobTag.tag_id == Tag.id)
             .group_by(Tag.name)
+            .order_by(job_count.desc(), Tag.name)
         )
 
         return [{"tag": row[0], "count": row[1]} for row in session.execute(stmt).all()
